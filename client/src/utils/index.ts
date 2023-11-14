@@ -1,24 +1,25 @@
-import React from 'react';
+import { ComponentType, lazy } from 'react';
 
-export const lazyWithRetries: typeof React.lazy = (importer) => {
-  const retryImport = async () => {
-    try {
-      return await importer();
-    } catch (error: any) {
-      // retry 5 times with 2 second delay and backoff factor of 2 (2, 4, 8, 16, 32 seconds)
-      for (let i = 0; i < 5; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** i));
-        const url = new URL(error.message.replace('Failed to fetch dynamically imported module: ', '').trim());
-        url.searchParams.set('t', `${+new Date()}`);
+type ImportComponent = () => Promise<{ default: ComponentType }>;
 
-        try {
-          return await import(url.href);
-        } catch (e) {
-          console.log('retrying import');
-        }
+export const lazyWithRetries = (importComponent: ImportComponent) =>
+   lazy((async () => {
+      const isPageHasBeenForceRefreshed = JSON.parse(
+         localStorage.getItem('page-has-been-force-refreshed') || 'false'
+      );
+
+      try {
+         const component = await importComponent();
+
+         localStorage.setItem('page-has-been-force-refreshed', 'false');
+
+         return component;
+      } catch (error) {
+         if (!isPageHasBeenForceRefreshed) {
+            localStorage.setItem('page-has-been-force-refreshed', 'true');
+            return window.location.reload();
+         }
+
+         throw error;
       }
-      throw error;
-    }
-  };
-  return React.lazy(retryImport);
-};
+   }) as ImportComponent);
